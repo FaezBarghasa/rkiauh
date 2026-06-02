@@ -1,6 +1,3 @@
-use std::io;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use anyhow::Result;
 use crossterm::{
     event::{Event, KeyCode, KeyModifiers},
@@ -8,19 +5,22 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
+use std::io;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::time::sleep;
 
 mod installer;
 mod tui;
 mod utils;
 
-use crate::tui::dashboard::{App, ConfigField, draw_dashboard};
-use crate::installer::systemd::{get_service_status, start_service, stop_service, restart_service};
+use crate::installer::systemd::{get_service_status, restart_service, start_service, stop_service};
 use crate::installer::{
-    ComponentInstaller, RKlippInstaller, RustedMoonrakerInstaller,
-    RKlipperScreenInstaller, FluiddInstaller, MainsailInstaller,
+    ComponentInstaller, FluiddInstaller, MainsailInstaller, RKlippInstaller,
+    RKlipperScreenInstaller, RustedMoonrakerInstaller,
 };
-use crate::utils::config::{NginxConfigPayload, generate_nginx_config, write_nginx_config};
+use crate::tui::dashboard::{draw_dashboard, App, ConfigField};
+use crate::utils::config::{generate_nginx_config, write_nginx_config, NginxConfigPayload};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
 
     // 2. Initialize App and D-Bus System Connection
     let app = Arc::new(Mutex::new(App::new()));
-    
+
     let dbus_conn = match zbus::Connection::system().await {
         Ok(c) => Some(c),
         Err(e) => {
@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
                 let r_klipp_res = get_service_status(conn, "r_klipp.service").await;
                 let moonraker_res = get_service_status(conn, "rusted_moonraker.service").await;
                 let screen_res = get_service_status(conn, "rKlipperScreen.service").await;
-                
+
                 let mut app_lock = app_clone.lock().unwrap();
                 if let Ok(st) = r_klipp_res {
                     app_lock.r_klipp_status = st;
@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
         repo_url: "https://github.com/FaezBarghasa/r_klipp".to_string(),
         local_path: "/home/jrad/RustroverProjects/r_klipp-workspace/r_klipp".to_string(),
     });
-    
+
     let moonraker_inst = Arc::new(RustedMoonrakerInstaller {
         repo_url: "https://github.com/FaezBarghasa/rusted_moonraker".to_string(),
         local_path: "/home/jrad/RustroverProjects/r_klipp-workspace/rusted_moonraker".to_string(),
@@ -129,9 +129,9 @@ async fn main() -> Result<()> {
                     if key.kind == crossterm::event::KeyEventKind::Release {
                         continue;
                     }
-                    
+
                     let mut app_lock = app.lock().unwrap();
-                    
+
                     // A. Check if configuration wizard is active
                     if let Some(current_field) = app_lock.config_prompt_mode {
                         match key.code {
@@ -175,7 +175,7 @@ async fn main() -> Result<()> {
                                             app_lock.fluidd_path = val;
                                         }
                                         app_lock.config_prompt_mode = None;
-                                        
+
                                         // Finalize configuration generation
                                         let payload = NginxConfigPayload {
                                             moonraker_port: app_lock.moonraker_port,
@@ -184,7 +184,7 @@ async fn main() -> Result<()> {
                                             max_body_size: app_lock.max_body_size.clone(),
                                             fluidd_path: app_lock.fluidd_path.clone(),
                                         };
-                                        
+
                                         match generate_nginx_config(&payload) {
                                             Ok(conf) => {
                                                 match write_nginx_config(&conf, "/etc/nginx/sites-available/fluidd") {
@@ -310,7 +310,7 @@ async fn main() -> Result<()> {
                             }
                             app_lock.is_compiling = true;
                             app_lock.message = format!("Installing {}...", app_lock.selected_component_name());
-                            
+
                             let component_idx = app_lock.selected_index;
                             let logs_clone = app_lock.logs.clone();
                             let app_ref = app.clone();
@@ -378,7 +378,7 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                 };
-                                
+
                                 let mut final_app = app_ref.lock().unwrap();
                                 final_app.is_compiling = false;
                                 match res {
@@ -395,7 +395,7 @@ async fn main() -> Result<()> {
                             }
                             app_lock.is_compiling = true;
                             app_lock.message = format!("Updating {}...", app_lock.selected_component_name());
-                            
+
                             let component_idx = app_lock.selected_index;
                             let logs_clone = app_lock.logs.clone();
                             let app_ref = app.clone();
@@ -448,7 +448,7 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                 };
-                                
+
                                 let mut final_app = app_ref.lock().unwrap();
                                 final_app.is_compiling = false;
                                 match res {

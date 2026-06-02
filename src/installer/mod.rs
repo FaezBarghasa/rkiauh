@@ -1,18 +1,18 @@
 pub mod systemd;
 
-use std::path::Path;
-use std::process::{Stdio, Command};
+use anyhow::{Context, Result};
+use git2::{build::CheckoutBuilder, FetchOptions, Repository, ResetType};
 use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
-use anyhow::{Result, Context};
-use git2::{Repository, FetchOptions, ResetType, build::CheckoutBuilder};
 
 pub trait ComponentInstaller: Send + Sync {
     fn name(&self) -> &str;
     fn get_repo_url(&self) -> &str;
     fn get_local_path(&self) -> &str;
     fn is_installed(&self) -> bool;
-    
+
     fn clone_repo(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let path = self.get_local_path();
         let url = self.get_repo_url();
@@ -28,7 +28,7 @@ pub trait ComponentInstaller: Send + Sync {
         }
 
         Repository::clone(url, path)?;
-        
+
         let mut buf = log_buf.lock().unwrap();
         buf.push(format!("Successfully cloned {}!", self.name()));
         Ok(())
@@ -42,25 +42,27 @@ pub trait ComponentInstaller: Send + Sync {
         }
 
         let repo = Repository::open(path)?;
-        let mut remote = repo.find_remote("origin")
+        let mut remote = repo
+            .find_remote("origin")
             .context("Failed to find remote 'origin'")?;
 
         let mut fetch_options = FetchOptions::new();
-        
+
         let mut buf = log_buf.lock().unwrap();
         buf.push("Fetching latest updates from remote...".to_string());
         drop(buf);
 
-        remote.fetch(&["master"], Some(&mut fetch_options), None)
+        remote
+            .fetch(&["master"], Some(&mut fetch_options), None)
             .or_else(|_| remote.fetch(&["main"], Some(&mut fetch_options), None))
             .context("Fetch failed")?;
 
         let fetch_head = repo.find_reference("FETCH_HEAD")?;
         let fetch_commit = repo.reference_to_annotated_commit(&fetch_head)?;
-        
+
         let (analysis, _) = repo.merge_analysis(&[&fetch_commit])?;
         let mut buf = log_buf.lock().unwrap();
-        
+
         if analysis.is_fast_forward() {
             buf.push("Fast-forward merge possible. Merging...".to_string());
             let refname = if repo.find_reference("refs/heads/master").is_ok() {
@@ -82,7 +84,7 @@ pub trait ComponentInstaller: Send + Sync {
             repo.reset(&target_obj, ResetType::Hard, None)?;
             buf.push("Hard reset completed successfully.".to_string());
         }
-        
+
         Ok(())
     }
 
@@ -116,7 +118,10 @@ impl ComponentInstaller for RKlippInstaller {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
         {
             let mut buf = log_buf.lock().unwrap();
-            buf.push(format!("Compiling r_klipp using manifest: {}", manifest_path));
+            buf.push(format!(
+                "Compiling r_klipp using manifest: {}",
+                manifest_path
+            ));
         }
 
         let mut child = Command::new("cargo")
@@ -145,7 +150,10 @@ impl ComponentInstaller for RKlippInstaller {
             buf.push("r_klipp compilation finished successfully!".to_string());
             Ok(())
         } else {
-            buf.push(format!("r_klipp compilation failed with exit status: {}", status));
+            buf.push(format!(
+                "r_klipp compilation failed with exit status: {}",
+                status
+            ));
             Err(anyhow::anyhow!("Cargo build failed"))
         }
     }
@@ -164,18 +172,21 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 "#;
-        
+
         let service_path = "/etc/systemd/system/r_klipp.service";
         let mut buf = log_buf.lock().unwrap();
         buf.push(format!("Writing systemd service to {}...", service_path));
-        
+
         match std::fs::write(service_path, service_content) {
             Ok(_) => {
                 buf.push("Successfully wrote systemd service file.".to_string());
                 Ok(())
             }
             Err(e) => {
-                buf.push(format!("Failed writing systemd service: {}. Attempting fallback writing locally.", e));
+                buf.push(format!(
+                    "Failed writing systemd service: {}. Attempting fallback writing locally.",
+                    e
+                ));
                 let local_service = format!("{}/r_klipp.service", self.local_path);
                 std::fs::write(&local_service, service_content)?;
                 buf.push(format!("Wrote service file locally to {}.", local_service));
@@ -211,7 +222,10 @@ impl ComponentInstaller for RustedMoonrakerInstaller {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
         {
             let mut buf = log_buf.lock().unwrap();
-            buf.push(format!("Compiling rusted_moonraker using manifest: {}", manifest_path));
+            buf.push(format!(
+                "Compiling rusted_moonraker using manifest: {}",
+                manifest_path
+            ));
         }
 
         let mut child = Command::new("cargo")
@@ -240,7 +254,10 @@ impl ComponentInstaller for RustedMoonrakerInstaller {
             buf.push("rusted_moonraker compilation finished successfully!".to_string());
             Ok(())
         } else {
-            buf.push(format!("rusted_moonraker compilation failed with exit status: {}", status));
+            buf.push(format!(
+                "rusted_moonraker compilation failed with exit status: {}",
+                status
+            ));
             Err(anyhow::anyhow!("Cargo build failed"))
         }
     }
@@ -259,18 +276,21 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 "#;
-        
+
         let service_path = "/etc/systemd/system/rusted_moonraker.service";
         let mut buf = log_buf.lock().unwrap();
         buf.push(format!("Writing systemd service to {}...", service_path));
-        
+
         match std::fs::write(service_path, service_content) {
             Ok(_) => {
                 buf.push("Successfully wrote systemd service file.".to_string());
                 Ok(())
             }
             Err(e) => {
-                buf.push(format!("Failed writing systemd service: {}. Attempting fallback writing locally.", e));
+                buf.push(format!(
+                    "Failed writing systemd service: {}. Attempting fallback writing locally.",
+                    e
+                ));
                 let local_service = format!("{}/rusted_moonraker.service", self.local_path);
                 std::fs::write(&local_service, service_content)?;
                 buf.push(format!("Wrote service file locally to {}.", local_service));
@@ -310,7 +330,9 @@ impl ComponentInstaller for FluiddInstaller {
 
     fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let mut buf = log_buf.lock().unwrap();
-        buf.push("Fluidd does not have a background daemon service. It runs via Nginx.".to_string());
+        buf.push(
+            "Fluidd does not have a background daemon service. It runs via Nginx.".to_string(),
+        );
         Ok(())
     }
 }
@@ -341,7 +363,10 @@ impl ComponentInstaller for RKlipperScreenInstaller {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
         {
             let mut buf = log_buf.lock().unwrap();
-            buf.push(format!("Compiling rKlipperScreen using manifest: {}", manifest_path));
+            buf.push(format!(
+                "Compiling rKlipperScreen using manifest: {}",
+                manifest_path
+            ));
         }
 
         let mut child = Command::new("cargo")
@@ -370,7 +395,10 @@ impl ComponentInstaller for RKlipperScreenInstaller {
             buf.push("rKlipperScreen compilation finished successfully!".to_string());
             Ok(())
         } else {
-            buf.push(format!("rKlipperScreen compilation failed with exit status: {}", status));
+            buf.push(format!(
+                "rKlipperScreen compilation failed with exit status: {}",
+                status
+            ));
             Err(anyhow::anyhow!("Cargo build failed"))
         }
     }
@@ -389,18 +417,21 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 "#;
-        
+
         let service_path = "/etc/systemd/system/rKlipperScreen.service";
         let mut buf = log_buf.lock().unwrap();
         buf.push(format!("Writing systemd service to {}...", service_path));
-        
+
         match std::fs::write(service_path, service_content) {
             Ok(_) => {
                 buf.push("Successfully wrote systemd service file.".to_string());
                 Ok(())
             }
             Err(e) => {
-                buf.push(format!("Failed writing systemd service: {}. Attempting fallback writing locally.", e));
+                buf.push(format!(
+                    "Failed writing systemd service: {}. Attempting fallback writing locally.",
+                    e
+                ));
                 let local_service = format!("{}/rKlipperScreen.service", self.local_path);
                 std::fs::write(&local_service, service_content)?;
                 buf.push(format!("Wrote service file locally to {}.", local_service));
@@ -440,7 +471,9 @@ impl ComponentInstaller for MainsailInstaller {
 
     fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let mut buf = log_buf.lock().unwrap();
-        buf.push("Mainsail does not have a background daemon service. It runs via Nginx.".to_string());
+        buf.push(
+            "Mainsail does not have a background daemon service. It runs via Nginx.".to_string(),
+        );
         Ok(())
     }
 }

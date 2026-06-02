@@ -1,5 +1,5 @@
+use anyhow::{Context, Result};
 use zbus::proxy;
-use anyhow::{Result, Context};
 
 #[proxy(
     interface = "org.freedesktop.systemd1.Manager",
@@ -10,7 +10,8 @@ pub trait Manager {
     fn get_unit(&self, name: &str) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
     fn start_unit(&self, name: &str, mode: &str) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
     fn stop_unit(&self, name: &str, mode: &str) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
-    fn restart_unit(&self, name: &str, mode: &str) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+    fn restart_unit(&self, name: &str, mode: &str)
+        -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
 }
 
 #[proxy(
@@ -49,7 +50,7 @@ pub struct ServiceStatus {
 
 pub async fn get_service_status(conn: &zbus::Connection, name: &str) -> Result<ServiceStatus> {
     let manager = ManagerProxy::new(conn).await?;
-    
+
     let path = match manager.get_unit(name).await {
         Ok(p) => p,
         Err(e) => {
@@ -64,15 +65,24 @@ pub async fn get_service_status(conn: &zbus::Connection, name: &str) -> Result<S
         }
     };
 
-    let unit_proxy = UnitProxy::builder(conn)
-        .path(path.clone())?
-        .build()
-        .await?;
+    let unit_proxy = UnitProxy::builder(conn).path(path.clone())?.build().await?;
 
-    let active_state = unit_proxy.active_state().await.unwrap_or_else(|_| "unknown".to_string());
-    let sub_state = unit_proxy.sub_state().await.unwrap_or_else(|_| "unknown".to_string());
-    let load_state = unit_proxy.load_state().await.unwrap_or_else(|_| "unknown".to_string());
-    let description = unit_proxy.description().await.unwrap_or_else(|_| "unknown".to_string());
+    let active_state = unit_proxy
+        .active_state()
+        .await
+        .unwrap_or_else(|_| "unknown".to_string());
+    let sub_state = unit_proxy
+        .sub_state()
+        .await
+        .unwrap_or_else(|_| "unknown".to_string());
+    let load_state = unit_proxy
+        .load_state()
+        .await
+        .unwrap_or_else(|_| "unknown".to_string());
+    let description = unit_proxy
+        .description()
+        .await
+        .unwrap_or_else(|_| "unknown".to_string());
 
     let mut main_pid = None;
     if active_state == "active" {
@@ -97,21 +107,27 @@ pub async fn get_service_status(conn: &zbus::Connection, name: &str) -> Result<S
 
 pub async fn start_service(conn: &zbus::Connection, name: &str) -> Result<()> {
     let manager = ManagerProxy::new(conn).await?;
-    manager.start_unit(name, "replace").await
+    manager
+        .start_unit(name, "replace")
+        .await
         .context(format!("Failed to start service {}", name))?;
     Ok(())
 }
 
 pub async fn stop_service(conn: &zbus::Connection, name: &str) -> Result<()> {
     let manager = ManagerProxy::new(conn).await?;
-    manager.stop_unit(name, "replace").await
+    manager
+        .stop_unit(name, "replace")
+        .await
         .context(format!("Failed to stop service {}", name))?;
     Ok(())
 }
 
 pub async fn restart_service(conn: &zbus::Connection, name: &str) -> Result<()> {
     let manager = ManagerProxy::new(conn).await?;
-    manager.restart_unit(name, "replace").await
+    manager
+        .restart_unit(name, "replace")
+        .await
         .context(format!("Failed to restart service {}", name))?;
     Ok(())
 }

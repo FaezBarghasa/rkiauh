@@ -1,8 +1,8 @@
-use tera::{Tera, Context};
+use anyhow::{Context as AnyhowContext, Result};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
-use anyhow::{Result, Context as AnyhowContext};
+use tera::{Context, Tera};
 
 // Embed default Nginx template
 const NGINX_TEMPLATE: &str = r#"
@@ -59,19 +59,20 @@ pub fn generate_nginx_config(payload: &NginxConfigPayload) -> Result<String> {
     let mut tera = Tera::default();
     tera.add_raw_template("nginx.conf", NGINX_TEMPLATE)
         .context("Failed to parse embedded nginx template")?;
-    
+
     let context = Context::from_serialize(payload)
         .context("Failed to serialize nginx payload into Tera context")?;
-    
-    let rendered = tera.render("nginx.conf", &context)
+
+    let rendered = tera
+        .render("nginx.conf", &context)
         .context("Failed to render Nginx template")?;
-    
+
     Ok(rendered)
 }
 
 pub fn write_nginx_config(rendered_conf: &str, target_path: &str) -> Result<String> {
     let path = Path::new(target_path);
-    
+
     if let Some(parent) = path.parent() {
         // Attempt to create parent directories, ignoring failure if permissions limit it
         let _ = fs::create_dir_all(parent);
@@ -84,10 +85,18 @@ pub fn write_nginx_config(rendered_conf: &str, target_path: &str) -> Result<Stri
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
             let fallback_dir = format!("{}/.config/rkiauh", home);
             fs::create_dir_all(&fallback_dir)?;
-            let filename = path.file_name().and_then(|f| f.to_str()).unwrap_or("fluidd.conf");
+            let filename = path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("fluidd.conf");
             let fallback_path = format!("{}/{}", fallback_dir, filename);
             fs::write(&fallback_path, rendered_conf)?;
-            Err(anyhow::anyhow!("Permission denied writing to {}: {}. Saved fallback configuration to: {}", target_path, e, fallback_path))
+            Err(anyhow::anyhow!(
+                "Permission denied writing to {}: {}. Saved fallback configuration to: {}",
+                target_path,
+                e,
+                fallback_path
+            ))
         }
     }
 }

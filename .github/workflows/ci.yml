@@ -1,0 +1,41 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ master, main, develop ]
+  pull_request:
+    branches: [ master, main, develop ]
+
+jobs:
+  check-test:
+    name: Check & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config libssl-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo Format Check
+        run: cargo fmt --all -- --check
+
+      - name: Cargo Check
+        run: cargo check --all-targets
+
+      - name: Cargo Test
+        run: cargo test --all-targets
+
+      - name: Cargo Clippy
+        run: cargo clippy --all-targets -- -D warnings

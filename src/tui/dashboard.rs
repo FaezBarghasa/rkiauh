@@ -1,12 +1,12 @@
-use std::sync::{Arc, Mutex};
+use crate::installer::systemd::ServiceStatus;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table, Cell, BorderType, Clear},
+    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table},
     Frame,
 };
-use crate::installer::systemd::ServiceStatus;
+use std::sync::{Arc, Mutex};
 
 pub struct App {
     pub r_klipp_status: ServiceStatus,
@@ -68,7 +68,8 @@ impl App {
             logs: Arc::new(Mutex::new(vec![
                 "Welcome to rkiauh (The Rust-based System Provisioner)!".to_string(),
                 "Press 'i' to install or 'u' to update the selected component.".to_string(),
-                "Press 's', 't', or 'r' to control systemd services (start/stop/restart).".to_string(),
+                "Press 's', 't', or 'r' to control systemd services (start/stop/restart)."
+                    .to_string(),
                 "Press 'c' to compile/generate Nginx configurations.".to_string(),
             ])),
             selected_index: 0,
@@ -107,41 +108,73 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
         .split(f.area());
 
     // 1. Render Header
-    let header_text = vec![
-        Line::from(vec![
-            Span::styled(" rkiauh ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw(" | Platform: "),
-            Span::styled("MKS SKIPR (RK3328 Cortex-A53)", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-            Span::raw(" | OS: "),
-            Span::styled("Armbian Linux", Style::default().fg(Color::Green)),
-            Span::raw(" | Status: "),
-            if app.is_compiling {
-                Span::styled("COMPILING...", Style::default().fg(Color::Yellow).add_modifier(Modifier::SLOW_BLINK))
-            } else {
-                Span::styled("IDLE", Style::default().fg(Color::Green))
-            }
-        ])
-    ];
-    let header_paragraph = Paragraph::new(header_text)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("System Info"));
+    let header_text = vec![Line::from(vec![
+        Span::styled(
+            " rkiauh ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" | Platform: "),
+        Span::styled(
+            "MKS SKIPR (RK3328 Cortex-A53)",
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" | OS: "),
+        Span::styled("Armbian Linux", Style::default().fg(Color::Green)),
+        Span::raw(" | Status: "),
+        if app.is_compiling {
+            Span::styled(
+                "COMPILING...",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::SLOW_BLINK),
+            )
+        } else {
+            Span::styled("IDLE", Style::default().fg(Color::Green))
+        },
+    ])];
+    let header_paragraph = Paragraph::new(header_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title("System Info"),
+    );
     f.render_widget(header_paragraph, chunks[0]);
 
     // 2. Render Main Service State Table
-    let selected_style = Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD);
-    
+    let selected_style = Style::default()
+        .bg(Color::DarkGray)
+        .add_modifier(Modifier::BOLD);
+
     // Status colors
-    let get_status_span = |state: &str, sub: &str| {
-        match state {
-            "active" => Span::styled("● ACTIVE (running)", Style::default().fg(Color::Green)),
-            "failed" => Span::styled("✖ FAILED", Style::default().fg(Color::Red)),
-            "inactive" => Span::styled("○ INACTIVE (dead)", Style::default().fg(Color::Gray)),
-            _ => Span::styled(format!("? {} ({})", state, sub), Style::default().fg(Color::Yellow)),
-        }
+    let get_status_span = |state: &str, sub: &str| match state {
+        "active" => Span::styled("● ACTIVE (running)", Style::default().fg(Color::Green)),
+        "failed" => Span::styled("✖ FAILED", Style::default().fg(Color::Red)),
+        "inactive" => Span::styled("○ INACTIVE (dead)", Style::default().fg(Color::Gray)),
+        _ => Span::styled(
+            format!("? {} ({})", state, sub),
+            Style::default().fg(Color::Yellow),
+        ),
     };
 
-    let r_klipp_pid_str = app.r_klipp_status.main_pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
-    let moonraker_pid_str = app.rusted_moonraker_status.main_pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
-    let r_klipper_screen_pid_str = app.r_klipper_screen_status.main_pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
+    let r_klipp_pid_str = app
+        .r_klipp_status
+        .main_pid
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let moonraker_pid_str = app
+        .rusted_moonraker_status
+        .main_pid
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let r_klipper_screen_pid_str = app
+        .r_klipper_screen_status
+        .main_pid
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "-".to_string());
 
     let fluidd_status_span = match app.fluidd_status.as_str() {
         "active" | "configured" => Span::styled("● CONFIGURED", Style::default().fg(Color::Green)),
@@ -158,38 +191,68 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
     let rows = vec![
         Row::new(vec![
             Cell::from("r_klipp"),
-            Cell::from(get_status_span(&app.r_klipp_status.active_state, &app.r_klipp_status.sub_state)),
+            Cell::from(get_status_span(
+                &app.r_klipp_status.active_state,
+                &app.r_klipp_status.sub_state,
+            )),
             Cell::from(r_klipp_pid_str),
             Cell::from("/home/jrad/RustroverProjects/r_klipp-workspace/r_klipp"),
-        ]).style(if app.selected_index == 0 { selected_style } else { Style::default() }),
-
+        ])
+        .style(if app.selected_index == 0 {
+            selected_style
+        } else {
+            Style::default()
+        }),
         Row::new(vec![
             Cell::from("rusted_moonraker"),
-            Cell::from(get_status_span(&app.rusted_moonraker_status.active_state, &app.rusted_moonraker_status.sub_state)),
+            Cell::from(get_status_span(
+                &app.rusted_moonraker_status.active_state,
+                &app.rusted_moonraker_status.sub_state,
+            )),
             Cell::from(moonraker_pid_str),
             Cell::from("/home/jrad/RustroverProjects/r_klipp-workspace/rusted_moonraker"),
-        ]).style(if app.selected_index == 1 { selected_style } else { Style::default() }),
-
+        ])
+        .style(if app.selected_index == 1 {
+            selected_style
+        } else {
+            Style::default()
+        }),
         Row::new(vec![
             Cell::from("rKlipperScreen"),
-            Cell::from(get_status_span(&app.r_klipper_screen_status.active_state, &app.r_klipper_screen_status.sub_state)),
+            Cell::from(get_status_span(
+                &app.r_klipper_screen_status.active_state,
+                &app.r_klipper_screen_status.sub_state,
+            )),
             Cell::from(r_klipper_screen_pid_str),
             Cell::from("/home/jrad/RustroverProjects/r_klipp-workspace/rKlipperScreen"),
-        ]).style(if app.selected_index == 2 { selected_style } else { Style::default() }),
-
+        ])
+        .style(if app.selected_index == 2 {
+            selected_style
+        } else {
+            Style::default()
+        }),
         Row::new(vec![
             Cell::from("fluidd"),
             Cell::from(fluidd_status_span),
             Cell::from("-"),
             Cell::from("/home/jrad/RustroverProjects/r_klipp-workspace/kiauh/docs"),
-        ]).style(if app.selected_index == 3 { selected_style } else { Style::default() }),
-
+        ])
+        .style(if app.selected_index == 3 {
+            selected_style
+        } else {
+            Style::default()
+        }),
         Row::new(vec![
             Cell::from("mainsail"),
             Cell::from(mainsail_status_span),
             Cell::from("-"),
             Cell::from("/home/jrad/RustroverProjects/r_klipp-workspace/mainsail"),
-        ]).style(if app.selected_index == 4 { selected_style } else { Style::default() }),
+        ])
+        .style(if app.selected_index == 4 {
+            selected_style
+        } else {
+            Style::default()
+        }),
     ];
 
     let table = Table::new(
@@ -199,13 +262,27 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
             Constraint::Percentage(25),
             Constraint::Percentage(10),
             Constraint::Percentage(45),
-        ]
+        ],
     )
     .header(
-        Row::new(vec!["Component", "Service Status", "PID", "Repository / Config Path"])
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        Row::new(vec![
+            "Component",
+            "Service Status",
+            "PID",
+            "Repository / Config Path",
+        ])
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
     )
-    .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Service Monitoring & Control"));
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title("Service Monitoring & Control"),
+    );
     f.render_widget(table, chunks[1]);
 
     // 3. Render Compilation / Operation Logs
@@ -218,38 +295,66 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
         .map(|line| Line::from(Span::styled(line, Style::default().fg(Color::Gray))))
         .collect();
 
-    let logs_paragraph = Paragraph::new(visible_logs)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Compilation & Installation Live Console"));
+    let logs_paragraph = Paragraph::new(visible_logs).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title("Compilation & Installation Live Console"),
+    );
     f.render_widget(logs_paragraph, chunks[2]);
 
     // 4. Render Footer / Command Guide
     let footer_text = Line::from(vec![
-        Span::styled(" [↑/↓] Select ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::styled(
+            " [↑/↓] Select ",
+            Style::default().fg(Color::Black).bg(Color::Cyan),
+        ),
         Span::raw(" | "),
-        Span::styled(" [I] Install ", Style::default().fg(Color::Black).bg(Color::Green)),
+        Span::styled(
+            " [I] Install ",
+            Style::default().fg(Color::Black).bg(Color::Green),
+        ),
         Span::raw(" | "),
-        Span::styled(" [U] Update ", Style::default().fg(Color::Black).bg(Color::Yellow)),
+        Span::styled(
+            " [U] Update ",
+            Style::default().fg(Color::Black).bg(Color::Yellow),
+        ),
         Span::raw(" | "),
-        Span::styled(" [S] Start ", Style::default().fg(Color::White).bg(Color::Blue)),
+        Span::styled(
+            " [S] Start ",
+            Style::default().fg(Color::White).bg(Color::Blue),
+        ),
         Span::raw(" | "),
-        Span::styled(" [T] Stop ", Style::default().fg(Color::White).bg(Color::Red)),
+        Span::styled(
+            " [T] Stop ",
+            Style::default().fg(Color::White).bg(Color::Red),
+        ),
         Span::raw(" | "),
-        Span::styled(" [R] Restart ", Style::default().fg(Color::Black).bg(Color::Magenta)),
+        Span::styled(
+            " [R] Restart ",
+            Style::default().fg(Color::Black).bg(Color::Magenta),
+        ),
         Span::raw(" | "),
-        Span::styled(" [C] Configure Nginx ", Style::default().fg(Color::Black).bg(Color::White)),
+        Span::styled(
+            " [C] Configure Nginx ",
+            Style::default().fg(Color::Black).bg(Color::White),
+        ),
         Span::raw(" | Msg: "),
         Span::styled(&app.message, Style::default().fg(Color::LightYellow)),
-        Span::raw(" | [Q] Quit")
+        Span::raw(" | [Q] Quit"),
     ]);
-    let footer_paragraph = Paragraph::new(footer_text)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+    let footer_paragraph = Paragraph::new(footer_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded),
+    );
     f.render_widget(footer_paragraph, chunks[3]);
 
     // 5. Configuration Modal Prompt (if active)
     if let Some(field) = app.config_prompt_mode {
         let area = centered_rect(60, 25, f.area());
         f.render_widget(Clear, area); // clear background under modal
-        
+
         let prompt_title = match field {
             ConfigField::MoonrakerPort => "Configure Moonraker Port",
             ConfigField::ListenPort => "Configure Nginx Listen Port",
@@ -263,25 +368,33 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
             ConfigField::ListenPort => "Default: 80",
             ConfigField::ServerName => "Default: _",
             ConfigField::MaxBodySize => "Default: 50M",
-            ConfigField::FluiddPath => "Default: /home/jrad/RustroverProjects/r_klipp-workspace/kiauh/docs",
+            ConfigField::FluiddPath => {
+                "Default: /home/jrad/RustroverProjects/r_klipp-workspace/kiauh/docs"
+            }
         };
 
         let modal_text = vec![
-            Line::from(vec![
-                Span::styled(format!("Current Value: {}\n", app.input_value), Style::default().fg(Color::Cyan))
-            ]),
-            Line::from(vec![
-                Span::styled(format!("Type value and press [Enter] to submit. [Esc] to cancel. ({})", placeholder), Style::default().fg(Color::Gray))
-            ])
+            Line::from(vec![Span::styled(
+                format!("Current Value: {}\n", app.input_value),
+                Style::default().fg(Color::Cyan),
+            )]),
+            Line::from(vec![Span::styled(
+                format!(
+                    "Type value and press [Enter] to submit. [Esc] to cancel. ({})",
+                    placeholder
+                ),
+                Style::default().fg(Color::Gray),
+            )]),
         ];
 
-        let modal_block = Paragraph::new(modal_text)
-            .block(Block::default()
+        let modal_block = Paragraph::new(modal_text).block(
+            Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Double)
                 .border_style(Style::default().fg(Color::Yellow))
-                .title(prompt_title));
-        
+                .title(prompt_title),
+        );
+
         f.render_widget(modal_block, area);
     }
 }
