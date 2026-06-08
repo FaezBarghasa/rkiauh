@@ -11,7 +11,7 @@ pub trait ComponentInstaller: Send + Sync {
     fn name(&self) -> &str;
     fn get_repo_url(&self) -> &str;
     fn get_local_path(&self) -> &str;
-    fn is_installed(&self) -> bool;
+
 
     fn clone_repo(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let path = self.get_local_path();
@@ -110,9 +110,6 @@ impl ComponentInstaller for RKlippInstaller {
         &self.local_path
     }
 
-    fn is_installed(&self) -> bool {
-        Path::new(&self.local_path).exists()
-    }
 
     fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
@@ -214,9 +211,6 @@ impl ComponentInstaller for RustedMoonrakerInstaller {
         &self.local_path
     }
 
-    fn is_installed(&self) -> bool {
-        Path::new(&self.local_path).exists()
-    }
 
     fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
@@ -318,9 +312,6 @@ impl ComponentInstaller for FluiddInstaller {
         &self.local_path
     }
 
-    fn is_installed(&self) -> bool {
-        Path::new(&self.local_path).exists()
-    }
 
     fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let mut buf = log_buf.lock().unwrap();
@@ -355,9 +346,6 @@ impl ComponentInstaller for RKlipperScreenInstaller {
         &self.local_path
     }
 
-    fn is_installed(&self) -> bool {
-        Path::new(&self.local_path).exists()
-    }
 
     fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
@@ -459,9 +447,6 @@ impl ComponentInstaller for MainsailInstaller {
         &self.local_path
     }
 
-    fn is_installed(&self) -> bool {
-        Path::new(&self.local_path).exists()
-    }
 
     fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let mut buf = log_buf.lock().unwrap();
