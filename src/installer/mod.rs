@@ -12,7 +12,6 @@ pub trait ComponentInstaller: Send + Sync {
     fn get_repo_url(&self) -> &str;
     fn get_local_path(&self) -> &str;
 
-
     fn clone_repo(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let path = self.get_local_path();
         let url = self.get_repo_url();
@@ -109,7 +108,6 @@ impl ComponentInstaller for RKlippInstaller {
     fn get_local_path(&self) -> &str {
         &self.local_path
     }
-
 
     fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
@@ -211,7 +209,6 @@ impl ComponentInstaller for RustedMoonrakerInstaller {
         &self.local_path
     }
 
-
     fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
         {
@@ -312,7 +309,6 @@ impl ComponentInstaller for FluiddInstaller {
         &self.local_path
     }
 
-
     fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let mut buf = log_buf.lock().unwrap();
         buf.push("Fluidd is a precompiled web frontend. No compilation required.".to_string());
@@ -345,7 +341,6 @@ impl ComponentInstaller for RKlipperScreenInstaller {
     fn get_local_path(&self) -> &str {
         &self.local_path
     }
-
 
     fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
@@ -446,7 +441,6 @@ impl ComponentInstaller for MainsailInstaller {
     fn get_local_path(&self) -> &str {
         &self.local_path
     }
-
 
     fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let mut buf = log_buf.lock().unwrap();
