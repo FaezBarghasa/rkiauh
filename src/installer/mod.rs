@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
+#[allow(dead_code)]
 pub trait ComponentInstaller: Send + Sync {
     fn name(&self) -> &str;
     fn get_repo_url(&self) -> &str;
@@ -137,6 +138,7 @@ impl ComponentInstaller for RKlippInstaller {
         let stderr = child.stderr.take().unwrap();
         let reader = BufReader::new(stderr);
 
+        #[allow(clippy::manual_flatten)]
         for line in reader.lines() {
             if let Ok(line_str) = line {
                 let mut buf = log_buf.lock().unwrap();
@@ -241,6 +243,7 @@ impl ComponentInstaller for RustedMoonrakerInstaller {
         let stderr = child.stderr.take().unwrap();
         let reader = BufReader::new(stderr);
 
+        #[allow(clippy::manual_flatten)]
         for line in reader.lines() {
             if let Ok(line_str) = line {
                 let mut buf = log_buf.lock().unwrap();
@@ -382,6 +385,7 @@ impl ComponentInstaller for RKlipperScreenInstaller {
         let stderr = child.stderr.take().unwrap();
         let reader = BufReader::new(stderr);
 
+        #[allow(clippy::manual_flatten)]
         for line in reader.lines() {
             if let Ok(line_str) = line {
                 let mut buf = log_buf.lock().unwrap();
