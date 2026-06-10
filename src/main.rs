@@ -49,6 +49,19 @@ async fn main() -> Result<()> {
     // 3. Spawn background service monitor loop
     let app_clone = app.clone();
     let dbus_clone = dbus_conn.clone();
+    let app_clone_sys = app.clone();
+    tokio::spawn(async move {
+        loop {
+            let cpu = crate::utils::sys::get_cpu_usage();
+            let mem = crate::utils::sys::get_mem_usage();
+            {
+                let mut app_lock = app_clone_sys.lock().unwrap();
+                app_lock.cpu_usage = cpu;
+                app_lock.mem_usage = mem;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    });
     tokio::spawn(async move {
         loop {
             if let Some(ref conn) = dbus_clone {
@@ -113,7 +126,7 @@ async fn main() -> Result<()> {
     });
 
     // 5. Main event loop
-    let mut reader = crossterm::event::EventStream::new();
+    let _reader = crossterm::event::EventStream::new();
 
     loop {
         // Draw TUI frame
@@ -122,346 +135,411 @@ async fn main() -> Result<()> {
             draw_dashboard(f, &app_lock);
         })?;
 
-        // Read event asynchronously with safety timeouts
-        tokio::select! {
-            maybe_event = tokio_stream::StreamExt::next(&mut reader) => {
-                if let Some(Ok(Event::Key(key))) = maybe_event {
-                    if key.kind == crossterm::event::KeyEventKind::Release {
-                        continue;
-                    }
+        // Check for event with a poll, making it non-blocking
+        if crossterm::event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = crossterm::event::read()? {
+                if key.kind == crossterm::event::KeyEventKind::Release {
+                    continue;
+                }
 
-                    let mut app_lock = app.lock().unwrap();
+                let mut app_lock = app.lock().unwrap();
 
-                    // A. Check if configuration wizard is active
-                    if let Some(current_field) = app_lock.config_prompt_mode {
-                        match key.code {
-                            KeyCode::Esc => {
-                                app_lock.config_prompt_mode = None;
-                                app_lock.message = "Configuration wizard cancelled.".to_string();
-                            }
-                            KeyCode::Enter => {
-                                let val = app_lock.input_value.trim().to_string();
-                                match current_field {
-                                    ConfigField::MoonrakerPort => {
-                                        if let Ok(p) = val.parse::<u16>() {
-                                            app_lock.moonraker_port = p;
-                                        }
-                                        app_lock.input_value = app_lock.listen_port.to_string();
-                                        app_lock.config_prompt_mode = Some(ConfigField::ListenPort);
+                // A. Check if configuration wizard is active
+                if let Some(current_field) = app_lock.config_prompt_mode {
+                    match key.code {
+                        KeyCode::Esc => {
+                            app_lock.config_prompt_mode = None;
+                            app_lock.message = "Configuration wizard cancelled.".to_string();
+                        }
+                        KeyCode::Enter => {
+                            let val = app_lock.input_value.trim().to_string();
+                            match current_field {
+                                ConfigField::MoonrakerPort => {
+                                    if let Ok(p) = val.parse::<u16>() {
+                                        app_lock.moonraker_port = p;
                                     }
-                                    ConfigField::ListenPort => {
-                                        if let Ok(p) = val.parse::<u16>() {
-                                            app_lock.listen_port = p;
-                                        }
-                                        app_lock.input_value = app_lock.server_name.clone();
-                                        app_lock.config_prompt_mode = Some(ConfigField::ServerName);
+                                    app_lock.input_value = app_lock.listen_port.to_string();
+                                    app_lock.config_prompt_mode = Some(ConfigField::ListenPort);
+                                }
+                                ConfigField::ListenPort => {
+                                    if let Ok(p) = val.parse::<u16>() {
+                                        app_lock.listen_port = p;
                                     }
-                                    ConfigField::ServerName => {
-                                        if !val.is_empty() {
-                                            app_lock.server_name = val;
-                                        }
-                                        app_lock.input_value = app_lock.max_body_size.clone();
-                                        app_lock.config_prompt_mode = Some(ConfigField::MaxBodySize);
+                                    app_lock.input_value = app_lock.server_name.clone();
+                                    app_lock.config_prompt_mode = Some(ConfigField::ServerName);
+                                }
+                                ConfigField::ServerName => {
+                                    if !val.is_empty() {
+                                        app_lock.server_name = val;
                                     }
-                                    ConfigField::MaxBodySize => {
-                                        if !val.is_empty() {
-                                            app_lock.max_body_size = val;
-                                        }
-                                        app_lock.input_value = app_lock.fluidd_path.clone();
-                                        app_lock.config_prompt_mode = Some(ConfigField::FluiddPath);
+                                    app_lock.input_value = app_lock.max_body_size.clone();
+                                    app_lock.config_prompt_mode = Some(ConfigField::MaxBodySize);
+                                }
+                                ConfigField::MaxBodySize => {
+                                    if !val.is_empty() {
+                                        app_lock.max_body_size = val;
                                     }
-                                    ConfigField::FluiddPath => {
-                                        if !val.is_empty() {
-                                            app_lock.fluidd_path = val;
-                                        }
-                                        app_lock.config_prompt_mode = None;
+                                    app_lock.input_value = app_lock.fluidd_path.clone();
+                                    app_lock.config_prompt_mode = Some(ConfigField::FluiddPath);
+                                }
+                                ConfigField::FluiddPath => {
+                                    if !val.is_empty() {
+                                        app_lock.fluidd_path = val;
+                                    }
+                                    app_lock.config_prompt_mode = None;
 
-                                        // Finalize configuration generation
-                                        let payload = NginxConfigPayload {
-                                            moonraker_port: app_lock.moonraker_port,
-                                            listen_port: app_lock.listen_port,
-                                            server_name: app_lock.server_name.clone(),
-                                            max_body_size: app_lock.max_body_size.clone(),
-                                            fluidd_path: app_lock.fluidd_path.clone(),
-                                        };
+                                    // Finalize configuration generation
+                                    let payload = NginxConfigPayload {
+                                        moonraker_port: app_lock.moonraker_port,
+                                        listen_port: app_lock.listen_port,
+                                        server_name: app_lock.server_name.clone(),
+                                        max_body_size: app_lock.max_body_size.clone(),
+                                        fluidd_path: app_lock.fluidd_path.clone(),
+                                    };
 
-                                        match generate_nginx_config(&payload) {
-                                            Ok(conf) => {
-                                                match write_nginx_config(&conf, "/etc/nginx/sites-available/fluidd") {
-                                                    Ok(written_path) => {
-                                                        app_lock.fluidd_status = "configured".to_string();
-                                                        app_lock.message = format!("Nginx conf generated successfully at {}!", written_path);
-                                                        app_lock.logs.lock().unwrap().push(format!("Config file saved to: {}", written_path));
-                                                    }
-                                                    Err(err) => {
-                                                        app_lock.message = "Failed to write configuration. Check logs.".to_string();
-                                                        app_lock.logs.lock().unwrap().push(err.to_string());
-                                                    }
+                                    match generate_nginx_config(&payload) {
+                                        Ok(conf) => {
+                                            match write_nginx_config(
+                                                &conf,
+                                                "/etc/nginx/sites-available/fluidd",
+                                            ) {
+                                                Ok(written_path) => {
+                                                    app_lock.fluidd_status =
+                                                        "configured".to_string();
+                                                    app_lock.message = format!(
+                                                        "Nginx conf generated successfully at {}!",
+                                                        written_path
+                                                    );
+                                                    app_lock.logs.lock().unwrap().push(format!(
+                                                        "Config file saved to: {}",
+                                                        written_path
+                                                    ));
+                                                }
+                                                Err(err) => {
+                                                    app_lock.message = "Failed to write configuration. Check logs.".to_string();
+                                                    app_lock
+                                                        .logs
+                                                        .lock()
+                                                        .unwrap()
+                                                        .push(err.to_string());
                                                 }
                                             }
-                                            Err(e) => {
-                                                app_lock.message = "Template parsing error. Check logs.".to_string();
-                                                app_lock.logs.lock().unwrap().push(e.to_string());
-                                            }
+                                        }
+                                        Err(e) => {
+                                            app_lock.message =
+                                                "Template parsing error. Check logs.".to_string();
+                                            app_lock.logs.lock().unwrap().push(e.to_string());
                                         }
                                     }
                                 }
                             }
-                            KeyCode::Char(c) => {
-                                app_lock.input_value.push(c);
-                            }
-                            KeyCode::Backspace => {
-                                app_lock.input_value.pop();
-                            }
-                            _ => {}
                         }
-                        continue;
-                    }
-
-                    // B. Normal keyboard guides
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
-                            if key.modifiers.contains(KeyModifiers::CONTROL) || key.code == KeyCode::Char('q') {
-                                break;
-                            }
+                        KeyCode::Char(c) => {
+                            app_lock.input_value.push(c);
                         }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            app_lock.selected_index = (app_lock.selected_index + 1) % 5;
-                        }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            app_lock.selected_index = (app_lock.selected_index + 4) % 5;
-                        }
-                        KeyCode::Char('s') => {
-                            // Start service
-                            let name = app_lock.selected_component_name().to_string();
-                            if name == "fluidd" || name == "mainsail" {
-                                app_lock.message = format!("{} does not use a direct systemd daemon.", name);
-                                continue;
-                            }
-                            let service_name = format!("{}.service", name);
-                            if let Some(ref conn) = dbus_conn {
-                                let conn_clone = conn.clone();
-                                let logs_clone = app_lock.logs.clone();
-                                app_lock.message = format!("Starting service {}...", service_name);
-                                tokio::spawn(async move {
-                                    match start_service(&conn_clone, &service_name).await {
-                                        Ok(_) => logs_clone.lock().unwrap().push(format!("Service {} started successfully.", service_name)),
-                                        Err(e) => logs_clone.lock().unwrap().push(format!("Error starting {}: {}", service_name, e)),
-                                    }
-                                });
-                            } else {
-                                app_lock.message = "No D-Bus connection available.".to_string();
-                            }
-                        }
-                        KeyCode::Char('t') => {
-                            // Stop service
-                            let name = app_lock.selected_component_name().to_string();
-                            if name == "fluidd" || name == "mainsail" {
-                                app_lock.message = format!("{} does not use a direct systemd daemon.", name);
-                                continue;
-                            }
-                            let service_name = format!("{}.service", name);
-                            if let Some(ref conn) = dbus_conn {
-                                let conn_clone = conn.clone();
-                                let logs_clone = app_lock.logs.clone();
-                                app_lock.message = format!("Stopping service {}...", service_name);
-                                tokio::spawn(async move {
-                                    match stop_service(&conn_clone, &service_name).await {
-                                        Ok(_) => logs_clone.lock().unwrap().push(format!("Service {} stopped.", service_name)),
-                                        Err(e) => logs_clone.lock().unwrap().push(format!("Error stopping {}: {}", service_name, e)),
-                                    }
-                                });
-                            } else {
-                                app_lock.message = "No D-Bus connection available.".to_string();
-                            }
-                        }
-                        KeyCode::Char('r') => {
-                            // Restart service
-                            let name = app_lock.selected_component_name().to_string();
-                            if name == "fluidd" || name == "mainsail" {
-                                app_lock.message = format!("{} does not use a direct systemd daemon.", name);
-                                continue;
-                            }
-                            let service_name = format!("{}.service", name);
-                            if let Some(ref conn) = dbus_conn {
-                                let conn_clone = conn.clone();
-                                let logs_clone = app_lock.logs.clone();
-                                app_lock.message = format!("Restarting service {}...", service_name);
-                                tokio::spawn(async move {
-                                    match restart_service(&conn_clone, &service_name).await {
-                                        Ok(_) => logs_clone.lock().unwrap().push(format!("Service {} restarted successfully.", service_name)),
-                                        Err(e) => logs_clone.lock().unwrap().push(format!("Error restarting {}: {}", service_name, e)),
-                                    }
-                                });
-                            } else {
-                                app_lock.message = "No D-Bus connection available.".to_string();
-                            }
-                        }
-                        KeyCode::Char('c') => {
-                            app_lock.input_value = app_lock.moonraker_port.to_string();
-                            app_lock.config_prompt_mode = Some(ConfigField::MoonrakerPort);
-                            app_lock.message = "Nginx configuration wizard started.".to_string();
-                        }
-                        KeyCode::Char('i') => {
-                            // Install Component
-                            if app_lock.is_compiling {
-                                app_lock.message = "Another compilation task is already running!".to_string();
-                                continue;
-                            }
-                            app_lock.is_compiling = true;
-                            app_lock.message = format!("Installing {}...", app_lock.selected_component_name());
-
-                            let component_idx = app_lock.selected_index;
-                            let logs_clone = app_lock.logs.clone();
-                            let app_ref = app.clone();
-                            let r_klipp_clone = r_klipp_inst.clone();
-                            let moonraker_clone = moonraker_inst.clone();
-                            let screen_clone = screen_inst.clone();
-                            let fluidd_clone = fluidd_inst.clone();
-                            let mainsail_clone = mainsail_inst.clone();
-
-                            tokio::spawn(async move {
-                                let res = match component_idx {
-                                    0 => {
-                                        let clone_res = r_klipp_clone.clone_repo(logs_clone.clone());
-                                        if clone_res.is_ok() {
-                                            let comp_res = r_klipp_clone.compile(logs_clone.clone());
-                                            if comp_res.is_ok() {
-                                                r_klipp_clone.install_service(logs_clone.clone())
-                                            } else {
-                                                comp_res
-                                            }
-                                        } else {
-                                            clone_res
-                                        }
-                                    }
-                                    1 => {
-                                        let clone_res = moonraker_clone.clone_repo(logs_clone.clone());
-                                        if clone_res.is_ok() {
-                                            let comp_res = moonraker_clone.compile(logs_clone.clone());
-                                            if comp_res.is_ok() {
-                                                moonraker_clone.install_service(logs_clone.clone())
-                                            } else {
-                                                comp_res
-                                            }
-                                        } else {
-                                            clone_res
-                                        }
-                                    }
-                                    2 => {
-                                        let clone_res = screen_clone.clone_repo(logs_clone.clone());
-                                        if clone_res.is_ok() {
-                                            let comp_res = screen_clone.compile(logs_clone.clone());
-                                            if comp_res.is_ok() {
-                                                screen_clone.install_service(logs_clone.clone())
-                                            } else {
-                                                comp_res
-                                            }
-                                        } else {
-                                            clone_res
-                                        }
-                                    }
-                                    3 => {
-                                        let clone_res = fluidd_clone.clone_repo(logs_clone.clone());
-                                        if clone_res.is_ok() {
-                                            fluidd_clone.compile(logs_clone.clone())
-                                        } else {
-                                            clone_res
-                                        }
-                                    }
-                                    _ => {
-                                        let clone_res = mainsail_clone.clone_repo(logs_clone.clone());
-                                        if clone_res.is_ok() {
-                                            mainsail_clone.compile(logs_clone.clone())
-                                        } else {
-                                            clone_res
-                                        }
-                                    }
-                                };
-
-                                let mut final_app = app_ref.lock().unwrap();
-                                final_app.is_compiling = false;
-                                match res {
-                                    Ok(_) => final_app.message = "Installation completed successfully!".to_string(),
-                                    Err(_) => final_app.message = "Installation failed. Check compiler log.".to_string(),
-                                }
-                            });
-                        }
-                        KeyCode::Char('u') => {
-                            // Update Component
-                            if app_lock.is_compiling {
-                                app_lock.message = "Another compilation task is already running!".to_string();
-                                continue;
-                            }
-                            app_lock.is_compiling = true;
-                            app_lock.message = format!("Updating {}...", app_lock.selected_component_name());
-
-                            let component_idx = app_lock.selected_index;
-                            let logs_clone = app_lock.logs.clone();
-                            let app_ref = app.clone();
-                            let r_klipp_clone = r_klipp_inst.clone();
-                            let moonraker_clone = moonraker_inst.clone();
-                            let screen_clone = screen_inst.clone();
-                            let fluidd_clone = fluidd_inst.clone();
-                            let mainsail_clone = mainsail_inst.clone();
-
-                            tokio::spawn(async move {
-                                let res = match component_idx {
-                                    0 => {
-                                        let pull_res = r_klipp_clone.pull_repo(logs_clone.clone());
-                                        if pull_res.is_ok() {
-                                            r_klipp_clone.compile(logs_clone.clone())
-                                        } else {
-                                            pull_res
-                                        }
-                                    }
-                                    1 => {
-                                        let pull_res = moonraker_clone.pull_repo(logs_clone.clone());
-                                        if pull_res.is_ok() {
-                                            moonraker_clone.compile(logs_clone.clone())
-                                        } else {
-                                            pull_res
-                                        }
-                                    }
-                                    2 => {
-                                        let pull_res = screen_clone.pull_repo(logs_clone.clone());
-                                        if pull_res.is_ok() {
-                                            screen_clone.compile(logs_clone.clone())
-                                        } else {
-                                            pull_res
-                                        }
-                                    }
-                                    3 => {
-                                        let pull_res = fluidd_clone.pull_repo(logs_clone.clone());
-                                        if pull_res.is_ok() {
-                                            fluidd_clone.compile(logs_clone.clone())
-                                        } else {
-                                            pull_res
-                                        }
-                                    }
-                                    _ => {
-                                        let pull_res = mainsail_clone.pull_repo(logs_clone.clone());
-                                        if pull_res.is_ok() {
-                                            mainsail_clone.compile(logs_clone.clone())
-                                        } else {
-                                            pull_res
-                                        }
-                                    }
-                                };
-
-                                let mut final_app = app_ref.lock().unwrap();
-                                final_app.is_compiling = false;
-                                match res {
-                                    Ok(_) => final_app.message = "Update completed successfully!".to_string(),
-                                    Err(_) => final_app.message = "Update failed. Check compiler log.".to_string(),
-                                }
-                            });
+                        KeyCode::Backspace => {
+                            app_lock.input_value.pop();
                         }
                         _ => {}
                     }
+                    continue;
+                }
+
+                // B. Normal keyboard guides
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        if key.modifiers.contains(KeyModifiers::CONTROL)
+                            || key.code == KeyCode::Char('q')
+                        {
+                            break;
+                        }
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        app_lock.selected_index = (app_lock.selected_index + 1) % 5;
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        app_lock.selected_index = (app_lock.selected_index + 4) % 5;
+                    }
+                    KeyCode::Char('s') => {
+                        // Start service
+                        let name = app_lock.selected_component_name().to_string();
+                        if name == "fluidd" || name == "mainsail" {
+                            app_lock.message =
+                                format!("{} does not use a direct systemd daemon.", name);
+                            continue;
+                        }
+                        let service_name = format!("{}.service", name);
+                        if let Some(ref conn) = dbus_conn {
+                            let conn_clone = conn.clone();
+                            let logs_clone = app_lock.logs.clone();
+                            app_lock.message = format!("Starting service {}...", service_name);
+                            tokio::spawn(async move {
+                                match start_service(&conn_clone, &service_name).await {
+                                    Ok(_) => logs_clone.lock().unwrap().push(format!(
+                                        "Service {} started successfully.",
+                                        service_name
+                                    )),
+                                    Err(e) => logs_clone
+                                        .lock()
+                                        .unwrap()
+                                        .push(format!("Error starting {}: {}", service_name, e)),
+                                }
+                            });
+                        } else {
+                            app_lock.message = "No D-Bus connection available.".to_string();
+                        }
+                    }
+                    KeyCode::Char('t') => {
+                        // Stop service
+                        let name = app_lock.selected_component_name().to_string();
+                        if name == "fluidd" || name == "mainsail" {
+                            app_lock.message =
+                                format!("{} does not use a direct systemd daemon.", name);
+                            continue;
+                        }
+                        let service_name = format!("{}.service", name);
+                        if let Some(ref conn) = dbus_conn {
+                            let conn_clone = conn.clone();
+                            let logs_clone = app_lock.logs.clone();
+                            app_lock.message = format!("Stopping service {}...", service_name);
+                            tokio::spawn(async move {
+                                match stop_service(&conn_clone, &service_name).await {
+                                    Ok(_) => logs_clone
+                                        .lock()
+                                        .unwrap()
+                                        .push(format!("Service {} stopped.", service_name)),
+                                    Err(e) => logs_clone
+                                        .lock()
+                                        .unwrap()
+                                        .push(format!("Error stopping {}: {}", service_name, e)),
+                                }
+                            });
+                        } else {
+                            app_lock.message = "No D-Bus connection available.".to_string();
+                        }
+                    }
+                    KeyCode::Char('r') => {
+                        // Restart service
+                        let name = app_lock.selected_component_name().to_string();
+                        if name == "fluidd" || name == "mainsail" {
+                            app_lock.message =
+                                format!("{} does not use a direct systemd daemon.", name);
+                            continue;
+                        }
+                        let service_name = format!("{}.service", name);
+                        if let Some(ref conn) = dbus_conn {
+                            let conn_clone = conn.clone();
+                            let logs_clone = app_lock.logs.clone();
+                            app_lock.message = format!("Restarting service {}...", service_name);
+                            tokio::spawn(async move {
+                                match restart_service(&conn_clone, &service_name).await {
+                                    Ok(_) => logs_clone.lock().unwrap().push(format!(
+                                        "Service {} restarted successfully.",
+                                        service_name
+                                    )),
+                                    Err(e) => logs_clone
+                                        .lock()
+                                        .unwrap()
+                                        .push(format!("Error restarting {}: {}", service_name, e)),
+                                }
+                            });
+                        } else {
+                            app_lock.message = "No D-Bus connection available.".to_string();
+                        }
+                    }
+                    KeyCode::Char('c') => {
+                        app_lock.input_value = app_lock.moonraker_port.to_string();
+                        app_lock.config_prompt_mode = Some(ConfigField::MoonrakerPort);
+                        app_lock.message = "Nginx configuration wizard started.".to_string();
+                    }
+                    KeyCode::Char('i') => {
+                        // Install Component
+                        if app_lock.is_compiling {
+                            app_lock.message =
+                                "Another compilation task is already running!".to_string();
+                            continue;
+                        }
+                        app_lock.is_compiling = true;
+                        app_lock.message =
+                            format!("Installing {}...", app_lock.selected_component_name());
+
+                        let component_idx = app_lock.selected_index;
+                        let logs_clone = app_lock.logs.clone();
+                        let app_ref = app.clone();
+                        let r_klipp_clone = r_klipp_inst.clone();
+                        let moonraker_clone = moonraker_inst.clone();
+                        let screen_clone = screen_inst.clone();
+                        let fluidd_clone = fluidd_inst.clone();
+                        let mainsail_clone = mainsail_inst.clone();
+
+                        tokio::spawn(async move {
+                            let res = match component_idx {
+                                0 => {
+                                    let clone_res =
+                                        r_klipp_clone.clone_repo(logs_clone.clone()).await;
+                                    if clone_res.is_ok() {
+                                        let comp_res =
+                                            r_klipp_clone.compile(logs_clone.clone()).await;
+                                        if comp_res.is_ok() {
+                                            r_klipp_clone.install_service(logs_clone.clone()).await
+                                        } else {
+                                            comp_res
+                                        }
+                                    } else {
+                                        clone_res
+                                    }
+                                }
+                                1 => {
+                                    let clone_res =
+                                        moonraker_clone.clone_repo(logs_clone.clone()).await;
+                                    if clone_res.is_ok() {
+                                        let comp_res =
+                                            moonraker_clone.compile(logs_clone.clone()).await;
+                                        if comp_res.is_ok() {
+                                            moonraker_clone
+                                                .install_service(logs_clone.clone())
+                                                .await
+                                        } else {
+                                            comp_res
+                                        }
+                                    } else {
+                                        clone_res
+                                    }
+                                }
+                                2 => {
+                                    let clone_res =
+                                        screen_clone.clone_repo(logs_clone.clone()).await;
+                                    if clone_res.is_ok() {
+                                        let comp_res =
+                                            screen_clone.compile(logs_clone.clone()).await;
+                                        if comp_res.is_ok() {
+                                            screen_clone.install_service(logs_clone.clone()).await
+                                        } else {
+                                            comp_res
+                                        }
+                                    } else {
+                                        clone_res
+                                    }
+                                }
+                                3 => {
+                                    let clone_res =
+                                        fluidd_clone.clone_repo(logs_clone.clone()).await;
+                                    if clone_res.is_ok() {
+                                        fluidd_clone.compile(logs_clone.clone()).await
+                                    } else {
+                                        clone_res
+                                    }
+                                }
+                                _ => {
+                                    let clone_res =
+                                        mainsail_clone.clone_repo(logs_clone.clone()).await;
+                                    if clone_res.is_ok() {
+                                        mainsail_clone.compile(logs_clone.clone()).await
+                                    } else {
+                                        clone_res
+                                    }
+                                }
+                            };
+
+                            let mut final_app = app_ref.lock().unwrap();
+                            final_app.is_compiling = false;
+                            match res {
+                                Ok(_) => {
+                                    final_app.message =
+                                        "Installation completed successfully!".to_string()
+                                }
+                                Err(_) => {
+                                    final_app.message =
+                                        "Installation failed. Check compiler log.".to_string()
+                                }
+                            }
+                        });
+                    }
+                    KeyCode::Char('u') => {
+                        // Update Component
+                        if app_lock.is_compiling {
+                            app_lock.message =
+                                "Another compilation task is already running!".to_string();
+                            continue;
+                        }
+                        app_lock.is_compiling = true;
+                        app_lock.message =
+                            format!("Updating {}...", app_lock.selected_component_name());
+
+                        let component_idx = app_lock.selected_index;
+                        let logs_clone = app_lock.logs.clone();
+                        let app_ref = app.clone();
+                        let r_klipp_clone = r_klipp_inst.clone();
+                        let moonraker_clone = moonraker_inst.clone();
+                        let screen_clone = screen_inst.clone();
+                        let fluidd_clone = fluidd_inst.clone();
+                        let mainsail_clone = mainsail_inst.clone();
+
+                        tokio::spawn(async move {
+                            let res = match component_idx {
+                                0 => {
+                                    let pull_res =
+                                        r_klipp_clone.pull_repo(logs_clone.clone()).await;
+                                    if pull_res.is_ok() {
+                                        r_klipp_clone.compile(logs_clone.clone()).await
+                                    } else {
+                                        pull_res
+                                    }
+                                }
+                                1 => {
+                                    let pull_res =
+                                        moonraker_clone.pull_repo(logs_clone.clone()).await;
+                                    if pull_res.is_ok() {
+                                        moonraker_clone.compile(logs_clone.clone()).await
+                                    } else {
+                                        pull_res
+                                    }
+                                }
+                                2 => {
+                                    let pull_res = screen_clone.pull_repo(logs_clone.clone()).await;
+                                    if pull_res.is_ok() {
+                                        screen_clone.compile(logs_clone.clone()).await
+                                    } else {
+                                        pull_res
+                                    }
+                                }
+                                3 => {
+                                    let pull_res = fluidd_clone.pull_repo(logs_clone.clone()).await;
+                                    if pull_res.is_ok() {
+                                        fluidd_clone.compile(logs_clone.clone()).await
+                                    } else {
+                                        pull_res
+                                    }
+                                }
+                                _ => {
+                                    let pull_res =
+                                        mainsail_clone.pull_repo(logs_clone.clone()).await;
+                                    if pull_res.is_ok() {
+                                        mainsail_clone.compile(logs_clone.clone()).await
+                                    } else {
+                                        pull_res
+                                    }
+                                }
+                            };
+
+                            let mut final_app = app_ref.lock().unwrap();
+                            final_app.is_compiling = false;
+                            match res {
+                                Ok(_) => {
+                                    final_app.message = "Update completed successfully!".to_string()
+                                }
+                                Err(_) => {
+                                    final_app.message =
+                                        "Update failed. Check compiler log.".to_string()
+                                }
+                            }
+                        });
+                    }
+                    _ => {}
                 }
             }
-            _ = sleep(Duration::from_millis(50)) => {}
+        } else {
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 

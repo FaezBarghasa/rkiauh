@@ -1,19 +1,25 @@
+use tokio::io::AsyncBufReadExt;
 pub mod systemd;
 
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use git2::{build::CheckoutBuilder, FetchOptions, Repository, ResetType};
-use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
+use tokio::io::BufReader as AsyncBufReader;
+use tokio::process::Command;
 
+#[async_trait]
+#[async_trait]
 pub trait ComponentInstaller: Send + Sync {
     fn name(&self) -> &str;
     fn get_repo_url(&self) -> &str;
     fn get_local_path(&self) -> &str;
+    #[allow(dead_code)]
     fn is_installed(&self) -> bool;
 
-    fn clone_repo(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn clone_repo(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let path = self.get_local_path();
         let url = self.get_repo_url();
         {
@@ -34,7 +40,7 @@ pub trait ComponentInstaller: Send + Sync {
         Ok(())
     }
 
-    fn pull_repo(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn pull_repo(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let path = self.get_local_path();
         {
             let mut buf = log_buf.lock().unwrap();
@@ -88,8 +94,8 @@ pub trait ComponentInstaller: Send + Sync {
         Ok(())
     }
 
-    fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()>;
-    fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()>;
+    async fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()>;
+    async fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()>;
 }
 
 pub struct RKlippInstaller {
@@ -97,6 +103,8 @@ pub struct RKlippInstaller {
     pub local_path: String,
 }
 
+#[async_trait]
+#[async_trait]
 impl ComponentInstaller for RKlippInstaller {
     fn name(&self) -> &str {
         "r_klipp"
@@ -114,7 +122,7 @@ impl ComponentInstaller for RKlippInstaller {
         Path::new(&self.local_path).exists()
     }
 
-    fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
         {
             let mut buf = log_buf.lock().unwrap();
@@ -135,16 +143,15 @@ impl ComponentInstaller for RKlippInstaller {
             .context("Failed to start cargo compilation")?;
 
         let stderr = child.stderr.take().unwrap();
-        let reader = BufReader::new(stderr);
+        let reader = AsyncBufReader::new(stderr);
+        let mut lines = reader.lines();
 
-        for line in reader.lines() {
-            if let Ok(line_str) = line {
-                let mut buf = log_buf.lock().unwrap();
-                buf.push(line_str);
-            }
+        while let Ok(Some(line_str)) = lines.next_line().await {
+            let mut buf = log_buf.lock().unwrap();
+            buf.push(line_str);
         }
 
-        let status = child.wait()?;
+        let status = child.wait().await?;
         let mut buf = log_buf.lock().unwrap();
         if status.success() {
             buf.push("r_klipp compilation finished successfully!".to_string());
@@ -158,7 +165,7 @@ impl ComponentInstaller for RKlippInstaller {
         }
     }
 
-    fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let service_content = r#"[Unit]
 Description=r_klipp Service
 After=network.target
@@ -201,6 +208,8 @@ pub struct RustedMoonrakerInstaller {
     pub local_path: String,
 }
 
+#[async_trait]
+#[async_trait]
 impl ComponentInstaller for RustedMoonrakerInstaller {
     fn name(&self) -> &str {
         "rusted_moonraker"
@@ -218,7 +227,7 @@ impl ComponentInstaller for RustedMoonrakerInstaller {
         Path::new(&self.local_path).exists()
     }
 
-    fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
         {
             let mut buf = log_buf.lock().unwrap();
@@ -239,16 +248,15 @@ impl ComponentInstaller for RustedMoonrakerInstaller {
             .context("Failed to start cargo compilation")?;
 
         let stderr = child.stderr.take().unwrap();
-        let reader = BufReader::new(stderr);
+        let reader = AsyncBufReader::new(stderr);
+        let mut lines = reader.lines();
 
-        for line in reader.lines() {
-            if let Ok(line_str) = line {
-                let mut buf = log_buf.lock().unwrap();
-                buf.push(line_str);
-            }
+        while let Ok(Some(line_str)) = lines.next_line().await {
+            let mut buf = log_buf.lock().unwrap();
+            buf.push(line_str);
         }
 
-        let status = child.wait()?;
+        let status = child.wait().await?;
         let mut buf = log_buf.lock().unwrap();
         if status.success() {
             buf.push("rusted_moonraker compilation finished successfully!".to_string());
@@ -262,7 +270,7 @@ impl ComponentInstaller for RustedMoonrakerInstaller {
         }
     }
 
-    fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let service_content = r#"[Unit]
 Description=Rusted Moonraker Service
 After=network.target
@@ -305,6 +313,8 @@ pub struct FluiddInstaller {
     pub local_path: String,
 }
 
+#[async_trait]
+#[async_trait]
 impl ComponentInstaller for FluiddInstaller {
     fn name(&self) -> &str {
         "fluidd"
@@ -322,13 +332,13 @@ impl ComponentInstaller for FluiddInstaller {
         Path::new(&self.local_path).exists()
     }
 
-    fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let mut buf = log_buf.lock().unwrap();
         buf.push("Fluidd is a precompiled web frontend. No compilation required.".to_string());
         Ok(())
     }
 
-    fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let mut buf = log_buf.lock().unwrap();
         buf.push(
             "Fluidd does not have a background daemon service. It runs via Nginx.".to_string(),
@@ -342,6 +352,8 @@ pub struct RKlipperScreenInstaller {
     pub local_path: String,
 }
 
+#[async_trait]
+#[async_trait]
 impl ComponentInstaller for RKlipperScreenInstaller {
     fn name(&self) -> &str {
         "rKlipperScreen"
@@ -359,7 +371,7 @@ impl ComponentInstaller for RKlipperScreenInstaller {
         Path::new(&self.local_path).exists()
     }
 
-    fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let manifest_path = format!("{}/Cargo.toml", self.local_path);
         {
             let mut buf = log_buf.lock().unwrap();
@@ -380,16 +392,15 @@ impl ComponentInstaller for RKlipperScreenInstaller {
             .context("Failed to start cargo compilation")?;
 
         let stderr = child.stderr.take().unwrap();
-        let reader = BufReader::new(stderr);
+        let reader = AsyncBufReader::new(stderr);
+        let mut lines = reader.lines();
 
-        for line in reader.lines() {
-            if let Ok(line_str) = line {
-                let mut buf = log_buf.lock().unwrap();
-                buf.push(line_str);
-            }
+        while let Ok(Some(line_str)) = lines.next_line().await {
+            let mut buf = log_buf.lock().unwrap();
+            buf.push(line_str);
         }
 
-        let status = child.wait()?;
+        let status = child.wait().await?;
         let mut buf = log_buf.lock().unwrap();
         if status.success() {
             buf.push("rKlipperScreen compilation finished successfully!".to_string());
@@ -403,7 +414,7 @@ impl ComponentInstaller for RKlipperScreenInstaller {
         }
     }
 
-    fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let service_content = r#"[Unit]
 Description=rKlipperScreen Service
 After=network.target
@@ -446,6 +457,8 @@ pub struct MainsailInstaller {
     pub local_path: String,
 }
 
+#[async_trait]
+#[async_trait]
 impl ComponentInstaller for MainsailInstaller {
     fn name(&self) -> &str {
         "mainsail"
@@ -463,13 +476,13 @@ impl ComponentInstaller for MainsailInstaller {
         Path::new(&self.local_path).exists()
     }
 
-    fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn compile(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let mut buf = log_buf.lock().unwrap();
         buf.push("Mainsail is a precompiled web frontend. No compilation required.".to_string());
         Ok(())
     }
 
-    fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
+    async fn install_service(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {
         let mut buf = log_buf.lock().unwrap();
         buf.push(
             "Mainsail does not have a background daemon service. It runs via Nginx.".to_string(),
