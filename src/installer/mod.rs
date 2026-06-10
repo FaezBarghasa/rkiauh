@@ -2,14 +2,14 @@ use tokio::io::AsyncBufReadExt;
 pub mod systemd;
 
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use git2::{build::CheckoutBuilder, FetchOptions, Repository, ResetType};
 use std::io::{BufRead, BufReader};
-use tokio::io::BufReader as AsyncBufReader;
 use std::path::Path;
-use tokio::process::Command;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use async_trait::async_trait;
+use tokio::io::BufReader as AsyncBufReader;
+use tokio::process::Command;
 
 #[async_trait]
 #[async_trait]

@@ -104,11 +104,11 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),      // Header
-            Constraint::Length(3),      // System Diagnostics
-            Constraint::Length(10),     // Table (Expanded for 5 components)
-            Constraint::Min(6),         // Logs / Progress
-            Constraint::Length(3),      // Footer / Command Guide
+            Constraint::Length(3),  // Header
+            Constraint::Length(3),  // System Diagnostics
+            Constraint::Length(10), // Table (Expanded for 5 components)
+            Constraint::Min(6),     // Logs / Progress
+            Constraint::Length(3),  // Footer / Command Guide
         ])
         .split(f.area());
 
@@ -156,13 +156,23 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
         .split(chunks[1]);
 
     let cpu_gauge = ratatui::widgets::Gauge::default()
-        .block(Block::default().title("CPU Usage").borders(Borders::ALL).border_type(BorderType::Rounded))
+        .block(
+            Block::default()
+                .title("CPU Usage")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
+        )
         .gauge_style(Style::default().fg(Color::Magenta))
         .percent(app.cpu_usage.clamp(0.0, 100.0) as u16);
     f.render_widget(cpu_gauge, diag_layout[0]);
 
     let mem_gauge = ratatui::widgets::Gauge::default()
-        .block(Block::default().title("Memory Usage").borders(Borders::ALL).border_type(BorderType::Rounded))
+        .block(
+            Block::default()
+                .title("Memory Usage")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
+        )
         .gauge_style(Style::default().fg(Color::Cyan))
         .percent(app.mem_usage.clamp(0.0, 100.0) as u16);
     f.render_widget(mem_gauge, diag_layout[1]);
