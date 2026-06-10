@@ -4,7 +4,6 @@ pub mod systemd;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use git2::{build::CheckoutBuilder, FetchOptions, Repository, ResetType};
-use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -17,6 +16,7 @@ pub trait ComponentInstaller: Send + Sync {
     fn name(&self) -> &str;
     fn get_repo_url(&self) -> &str;
     fn get_local_path(&self) -> &str;
+    #[allow(dead_code)]
     fn is_installed(&self) -> bool;
 
     async fn clone_repo(&self, log_buf: Arc<Mutex<Vec<String>>>) -> Result<()> {

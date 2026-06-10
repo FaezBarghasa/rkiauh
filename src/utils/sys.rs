@@ -23,37 +23,35 @@ pub fn get_mem_usage() -> f64 {
         let mut buffers = 0.0;
         let mut cached = 0.0;
 
-        for line in reader.lines() {
-            if let Ok(l) = line {
-                if l.starts_with("MemTotal:") {
-                    total = l
-                        .split_whitespace()
-                        .nth(1)
-                        .unwrap_or("0")
-                        .parse()
-                        .unwrap_or(0.0);
-                } else if l.starts_with("MemFree:") {
-                    free = l
-                        .split_whitespace()
-                        .nth(1)
-                        .unwrap_or("0")
-                        .parse()
-                        .unwrap_or(0.0);
-                } else if l.starts_with("Buffers:") {
-                    buffers = l
-                        .split_whitespace()
-                        .nth(1)
-                        .unwrap_or("0")
-                        .parse()
-                        .unwrap_or(0.0);
-                } else if l.starts_with("Cached:") {
-                    cached = l
-                        .split_whitespace()
-                        .nth(1)
-                        .unwrap_or("0")
-                        .parse()
-                        .unwrap_or(0.0);
-                }
+        for l in reader.lines().map_while(Result::ok) {
+            if l.starts_with("MemTotal:") {
+                total = l
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0.0);
+            } else if l.starts_with("MemFree:") {
+                free = l
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0.0);
+            } else if l.starts_with("Buffers:") {
+                buffers = l
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0.0);
+            } else if l.starts_with("Cached:") {
+                cached = l
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0.0);
             }
         }
 
