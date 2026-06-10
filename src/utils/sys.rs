@@ -1,64 +1,63 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::fs;
+use std::io::{self, Write};
+use std::path::Path;
 
-pub fn get_cpu_usage() -> f64 {
-    if let Ok(file) = File::open("/proc/loadavg") {
-        let reader = BufReader::new(file);
-        if let Some(Ok(line)) = reader.lines().next() {
-            if let Some(load) = line.split_whitespace().next() {
-                if let Ok(val) = load.parse::<f64>() {
-                    return val * 10.0;
-                }
-            }
-        }
-    }
-    0.0
+pub struct SysConfigurator {
+    pub simulation_mode: bool,
 }
 
-pub fn get_mem_usage() -> f64 {
-    if let Ok(file) = File::open("/proc/meminfo") {
-        let reader = BufReader::new(file);
-        let mut total = 0.0;
-        let mut free = 0.0;
-        let mut buffers = 0.0;
-        let mut cached = 0.0;
+impl SysConfigurator {
+    pub fn new(simulation_mode: bool) -> Self {
+        Self { simulation_mode }
+    }
 
-        for l in reader.lines().map_while(Result::ok) {
-            if l.starts_with("MemTotal:") {
-                total = l
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or("0")
-                    .parse()
-                    .unwrap_or(0.0);
-            } else if l.starts_with("MemFree:") {
-                free = l
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or("0")
-                    .parse()
-                    .unwrap_or(0.0);
-            } else if l.starts_with("Buffers:") {
-                buffers = l
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or("0")
-                    .parse()
-                    .unwrap_or(0.0);
-            } else if l.starts_with("Cached:") {
-                cached = l
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or("0")
-                    .parse()
-                    .unwrap_or(0.0);
+    pub fn write_udev_rule(&self, dest_path: &Path, content: &str) -> io::Result<()> {
+        if self.simulation_mode {
+            return Ok(());
+        }
+        if dest_path.exists() {
+            let backup_path = dest_path.with_extension("bak");
+            fs::copy(dest_path, backup_path)?;
+        }
+        let mut file = fs::File::create(dest_path)?;
+        file.write_all(content.as_bytes())?;
+        Ok(())
+    }
+
+    pub fn write_dt_overlays(&self, env_path: &Path, new_overlays: &[&str]) -> io::Result<()> {
+        if self.simulation_mode {
+            return Ok(());
+        }
+        if !env_path.exists() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "armbianEnv.txt config space unavailable.",
+            ));
+        }
+        
+        let content = fs::read_to_string(env_path)?;
+        let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+        let mut flag_mutated = false;
+
+        for line in lines.iter_mut() {
+            if line.starts_with("overlays=") {
+                flag_mutated = true;
+                let current_overlays: Vec<&str> = line["overlays=".len()..].split_whitespace().collect();
+                let updated_nodes: Vec<&str> = [current_overlays, new_overlays.to_vec()].concat();
+                let mut unique_nodes: Vec<&str> = vec![];
+                for node in updated_nodes {
+                    if !unique_nodes.contains(&node) { unique_nodes.push(node); }
+                }
+                *line = format!("overlays={}", unique_nodes.join(" "));
+                break;
             }
         }
-
-        if total > 0.0 {
-            let used = total - free - buffers - cached;
-            return (used / total) * 100.0;
+        if !flag_mutated {
+            lines.push(format!("overlays={}", new_overlays.join(" ")));
         }
+
+        let backup_path = env_path.with_extension("bak");
+        fs::copy(env_path, backup_path)?;
+        fs::write(env_path, lines.join("\n") + "\n")
     }
-    0.0
 }
