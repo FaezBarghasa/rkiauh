@@ -25,6 +25,8 @@ pub struct App {
     pub fluidd_path: String,
     pub config_prompt_mode: Option<ConfigField>,
     pub input_value: String,
+    pub cpu_usage: f64,
+    pub mem_usage: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +84,8 @@ impl App {
             fluidd_path: "/home/jrad/gcode_files".to_string(),
             config_prompt_mode: None,
             input_value: String::new(),
+            cpu_usage: 0.0,
+            mem_usage: 0.0,
         }
     }
 
@@ -100,10 +104,11 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Length(10), // Table (Expanded for 5 components)
-            Constraint::Min(6),     // Logs / Progress
-            Constraint::Length(3),  // Footer / Command Guide
+            Constraint::Length(3),      // Header
+            Constraint::Length(3),      // System Diagnostics
+            Constraint::Length(10),     // Table (Expanded for 5 components)
+            Constraint::Min(6),         // Logs / Progress
+            Constraint::Length(3),      // Footer / Command Guide
         ])
         .split(f.area());
 
@@ -143,6 +148,24 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
             .title("System Info"),
     );
     f.render_widget(header_paragraph, chunks[0]);
+
+    // 1.5 Render System Diagnostics
+    let diag_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chunks[1]);
+
+    let cpu_gauge = ratatui::widgets::Gauge::default()
+        .block(Block::default().title("CPU Usage").borders(Borders::ALL).border_type(BorderType::Rounded))
+        .gauge_style(Style::default().fg(Color::Magenta))
+        .percent(app.cpu_usage.clamp(0.0, 100.0) as u16);
+    f.render_widget(cpu_gauge, diag_layout[0]);
+
+    let mem_gauge = ratatui::widgets::Gauge::default()
+        .block(Block::default().title("Memory Usage").borders(Borders::ALL).border_type(BorderType::Rounded))
+        .gauge_style(Style::default().fg(Color::Cyan))
+        .percent(app.mem_usage.clamp(0.0, 100.0) as u16);
+    f.render_widget(mem_gauge, diag_layout[1]);
 
     // 2. Render Main Service State Table
     let selected_style = Style::default()
@@ -283,12 +306,12 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
             .border_type(BorderType::Rounded)
             .title("Service Monitoring & Control"),
     );
-    f.render_widget(table, chunks[1]);
+    f.render_widget(table, chunks[2]);
 
     // 3. Render Compilation / Operation Logs
     let logs_guard = app.logs.lock().unwrap();
     // Get last N lines that fit inside logs block height
-    let logs_height = (chunks[2].height as usize).saturating_sub(2);
+    let logs_height = (chunks[3].height as usize).saturating_sub(2);
     let start_idx = logs_guard.len().saturating_sub(logs_height);
     let visible_logs: Vec<Line> = logs_guard[start_idx..]
         .iter()
@@ -301,7 +324,7 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
             .border_type(BorderType::Rounded)
             .title("Compilation & Installation Live Console"),
     );
-    f.render_widget(logs_paragraph, chunks[2]);
+    f.render_widget(logs_paragraph, chunks[3]);
 
     // 4. Render Footer / Command Guide
     let footer_text = Line::from(vec![
@@ -348,7 +371,7 @@ pub fn draw_dashboard(f: &mut Frame, app: &App) {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded),
     );
-    f.render_widget(footer_paragraph, chunks[3]);
+    f.render_widget(footer_paragraph, chunks[4]);
 
     // 5. Configuration Modal Prompt (if active)
     if let Some(field) = app.config_prompt_mode {

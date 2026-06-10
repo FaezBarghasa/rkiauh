@@ -49,6 +49,19 @@ async fn main() -> Result<()> {
     // 3. Spawn background service monitor loop
     let app_clone = app.clone();
     let dbus_clone = dbus_conn.clone();
+    let app_clone_sys = app.clone();
+    tokio::spawn(async move {
+        loop {
+            let cpu = crate::utils::sys::get_cpu_usage();
+            let mem = crate::utils::sys::get_mem_usage();
+            {
+                let mut app_lock = app_clone_sys.lock().unwrap();
+                app_lock.cpu_usage = cpu;
+                app_lock.mem_usage = mem;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    });
     tokio::spawn(async move {
         loop {
             if let Some(ref conn) = dbus_clone {
@@ -113,7 +126,7 @@ async fn main() -> Result<()> {
     });
 
     // 5. Main event loop
-    let mut reader = crossterm::event::EventStream::new();
+    let _reader = crossterm::event::EventStream::new();
 
     loop {
         // Draw TUI frame
@@ -122,15 +135,14 @@ async fn main() -> Result<()> {
             draw_dashboard(f, &app_lock);
         })?;
 
-        // Read event asynchronously with safety timeouts
-        tokio::select! {
-            maybe_event = tokio_stream::StreamExt::next(&mut reader) => {
-                if let Some(Ok(Event::Key(key))) = maybe_event {
-                    if key.kind == crossterm::event::KeyEventKind::Release {
-                        continue;
-                    }
+        // Check for event with a poll, making it non-blocking
+        if crossterm::event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = crossterm::event::read()? {
+                if key.kind == crossterm::event::KeyEventKind::Release {
+                    continue;
+                }
 
-                    let mut app_lock = app.lock().unwrap();
+                let mut app_lock = app.lock().unwrap();
 
                     // A. Check if configuration wizard is active
                     if let Some(current_field) = app_lock.config_prompt_mode {
@@ -323,11 +335,11 @@ async fn main() -> Result<()> {
                             tokio::spawn(async move {
                                 let res = match component_idx {
                                     0 => {
-                                        let clone_res = r_klipp_clone.clone_repo(logs_clone.clone());
+                                        let clone_res = r_klipp_clone.clone_repo(logs_clone.clone()).await;
                                         if clone_res.is_ok() {
-                                            let comp_res = r_klipp_clone.compile(logs_clone.clone());
+                                            let comp_res = r_klipp_clone.compile(logs_clone.clone()).await;
                                             if comp_res.is_ok() {
-                                                r_klipp_clone.install_service(logs_clone.clone())
+                                                r_klipp_clone.install_service(logs_clone.clone()).await
                                             } else {
                                                 comp_res
                                             }
@@ -336,11 +348,11 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                     1 => {
-                                        let clone_res = moonraker_clone.clone_repo(logs_clone.clone());
+                                        let clone_res = moonraker_clone.clone_repo(logs_clone.clone()).await;
                                         if clone_res.is_ok() {
-                                            let comp_res = moonraker_clone.compile(logs_clone.clone());
+                                            let comp_res = moonraker_clone.compile(logs_clone.clone()).await;
                                             if comp_res.is_ok() {
-                                                moonraker_clone.install_service(logs_clone.clone())
+                                                moonraker_clone.install_service(logs_clone.clone()).await
                                             } else {
                                                 comp_res
                                             }
@@ -349,11 +361,11 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                     2 => {
-                                        let clone_res = screen_clone.clone_repo(logs_clone.clone());
+                                        let clone_res = screen_clone.clone_repo(logs_clone.clone()).await;
                                         if clone_res.is_ok() {
-                                            let comp_res = screen_clone.compile(logs_clone.clone());
+                                            let comp_res = screen_clone.compile(logs_clone.clone()).await;
                                             if comp_res.is_ok() {
-                                                screen_clone.install_service(logs_clone.clone())
+                                                screen_clone.install_service(logs_clone.clone()).await
                                             } else {
                                                 comp_res
                                             }
@@ -362,17 +374,17 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                     3 => {
-                                        let clone_res = fluidd_clone.clone_repo(logs_clone.clone());
+                                        let clone_res = fluidd_clone.clone_repo(logs_clone.clone()).await;
                                         if clone_res.is_ok() {
-                                            fluidd_clone.compile(logs_clone.clone())
+                                            fluidd_clone.compile(logs_clone.clone()).await
                                         } else {
                                             clone_res
                                         }
                                     }
                                     _ => {
-                                        let clone_res = mainsail_clone.clone_repo(logs_clone.clone());
+                                        let clone_res = mainsail_clone.clone_repo(logs_clone.clone()).await;
                                         if clone_res.is_ok() {
-                                            mainsail_clone.compile(logs_clone.clone())
+                                            mainsail_clone.compile(logs_clone.clone()).await
                                         } else {
                                             clone_res
                                         }
@@ -408,41 +420,41 @@ async fn main() -> Result<()> {
                             tokio::spawn(async move {
                                 let res = match component_idx {
                                     0 => {
-                                        let pull_res = r_klipp_clone.pull_repo(logs_clone.clone());
+                                        let pull_res = r_klipp_clone.pull_repo(logs_clone.clone()).await;
                                         if pull_res.is_ok() {
-                                            r_klipp_clone.compile(logs_clone.clone())
+                                            r_klipp_clone.compile(logs_clone.clone()).await
                                         } else {
                                             pull_res
                                         }
                                     }
                                     1 => {
-                                        let pull_res = moonraker_clone.pull_repo(logs_clone.clone());
+                                        let pull_res = moonraker_clone.pull_repo(logs_clone.clone()).await;
                                         if pull_res.is_ok() {
-                                            moonraker_clone.compile(logs_clone.clone())
+                                            moonraker_clone.compile(logs_clone.clone()).await
                                         } else {
                                             pull_res
                                         }
                                     }
                                     2 => {
-                                        let pull_res = screen_clone.pull_repo(logs_clone.clone());
+                                        let pull_res = screen_clone.pull_repo(logs_clone.clone()).await;
                                         if pull_res.is_ok() {
-                                            screen_clone.compile(logs_clone.clone())
+                                            screen_clone.compile(logs_clone.clone()).await
                                         } else {
                                             pull_res
                                         }
                                     }
                                     3 => {
-                                        let pull_res = fluidd_clone.pull_repo(logs_clone.clone());
+                                        let pull_res = fluidd_clone.pull_repo(logs_clone.clone()).await;
                                         if pull_res.is_ok() {
-                                            fluidd_clone.compile(logs_clone.clone())
+                                            fluidd_clone.compile(logs_clone.clone()).await
                                         } else {
                                             pull_res
                                         }
                                     }
                                     _ => {
-                                        let pull_res = mainsail_clone.pull_repo(logs_clone.clone());
+                                        let pull_res = mainsail_clone.pull_repo(logs_clone.clone()).await;
                                         if pull_res.is_ok() {
-                                            mainsail_clone.compile(logs_clone.clone())
+                                            mainsail_clone.compile(logs_clone.clone()).await
                                         } else {
                                             pull_res
                                         }
@@ -460,8 +472,8 @@ async fn main() -> Result<()> {
                         _ => {}
                     }
                 }
-            }
-            _ = sleep(Duration::from_millis(50)) => {}
+        } else {
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 
